@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+import ssl
 from types import TracebackType
 
 from wireline.protocol.codec import Frame, encode
@@ -36,7 +37,7 @@ class WirelineServer:
         *,
         idle_timeout: float = DEFAULT_IDLE_TIMEOUT,
         handshake_timeout: float = DEFAULT_HANDSHAKE_TIMEOUT,
-        ssl_context: object | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._secret = secret
         self._host = host

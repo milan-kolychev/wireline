@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+import ssl
 from types import TracebackType
 
 from wireline.protocol import messages
@@ -32,7 +33,8 @@ class WirelineClient:
         *,
         client_id: str = "wireline-cli",
         timeout: float = DEFAULT_TIMEOUT,
-        ssl_context: object | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+        server_hostname: str | None = None,
     ) -> None:
         self._secret = secret
         self._host = host
@@ -40,6 +42,7 @@ class WirelineClient:
         self._client_id = client_id
         self._timeout = timeout
         self._ssl = ssl_context
+        self._server_hostname = server_hostname
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._out_seq = 0
@@ -51,7 +54,12 @@ class WirelineClient:
 
     async def connect(self) -> None:
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(self._host, self._port, ssl=self._ssl),
+            asyncio.open_connection(
+                self._host,
+                self._port,
+                ssl=self._ssl,
+                server_hostname=self._server_hostname if self._ssl else None,
+            ),
             timeout=self._timeout,
         )
         self._reader, self._writer = reader, writer
