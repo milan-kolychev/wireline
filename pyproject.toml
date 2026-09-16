@@ -42,6 +42,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Nested `async with` reads better than a combined one when the inner context depends
+# on the outer (a client needs the server's ephemeral address).
+"tests/*" = ["SIM117"]
 
 [tool.mypy]
 python_version = "3.11"
