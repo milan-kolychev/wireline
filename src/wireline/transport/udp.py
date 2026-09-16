@@ -22,7 +22,7 @@ import random
 from collections import OrderedDict
 from collections.abc import Callable
 from types import TracebackType
-from typing import Any
+from typing import Any, cast
 
 from wireline.protocol import messages
 from wireline.protocol.codec import (
@@ -114,8 +114,7 @@ class _ServerProtocol(asyncio.DatagramProtocol):
         self._server = server
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        assert isinstance(transport, asyncio.DatagramTransport)
-        self._server._attach(transport)
+        self._server._attach(cast(asyncio.DatagramTransport, transport))
 
     def datagram_received(self, data: bytes, addr: Any) -> None:
         self._server._on_datagram(data, addr)
