@@ -3,6 +3,7 @@
     python -m wireline serve --port 9000
     python -m wireline ping --count 5
     python -m wireline send --text "hello"
+    python -m wireline sniff capture.pcap
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import time
 from wireline.client import WirelineClient
 from wireline.config import load_secret, setup_logging
 from wireline.server import WirelineServer
+from wireline.sniff.dissect import dissect, format_rows, reassemble_flows, summarise
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     send = sub.add_parser("send", help="send one DATA frame and print the echo")
     send.add_argument("--text", required=True)
 
+    sniff = sub.add_parser("sniff", help="dissect a pcap file layer by layer")
+    sniff.add_argument("path")
+    sniff.add_argument(
+        "--flows", action="store_true", help="also reassemble messages per direction"
+    )
     return parser
 
 
@@ -59,9 +66,25 @@ async def _send(args: argparse.Namespace) -> int:
     return 0
 
 
+def sniff(args: argparse.Namespace) -> int:
+    rows = dissect(args.path)
+    for line in format_rows(rows):
+        print(line)
+    counts = summarise(rows)
+    print(f"\n{len(rows)} packets, wireline messages seen per packet: {counts or 'none'}")
+    if args.flows:
+        print("\nreassembled per direction:")
+        for key, frames in reassemble_flows(rows).items():
+            names = ", ".join(f"{f.msg_type.name}(seq={f.seq})" for f in frames)
+            print(f"  {key}: {names or 'no complete messages'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging(args.log_level)
+    if args.command == "sniff":  # the only command that needs no event loop
+        return sniff(args)
     handlers = {"serve": _serve, "ping": _ping, "send": _send}
     try:
         return asyncio.run(handlers[args.command](args))

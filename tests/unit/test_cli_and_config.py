@@ -68,3 +68,21 @@ async def test_send_command_prints_the_echo(
     args = argparse.Namespace(host=host, port=port, secret=SECRET.decode(), text="echo me")
     assert await _send(args) == 0
     assert "echo me" in capsys.readouterr().out
+
+
+def test_parser_reads_sniff_options() -> None:
+    args = build_parser().parse_args(["sniff", "capture.pcap", "--flows"])
+    assert (args.command, args.path, args.flows) == ("sniff", "capture.pcap", True)
+
+
+def test_sniff_command_prints_layers_and_flows(capsys: pytest.CaptureFixture[str]) -> None:
+    from pathlib import Path
+
+    from wireline.__main__ import sniff
+
+    capture = Path(__file__).resolve().parents[1] / "fixtures" / "tcp-session.pcap"
+    args = argparse.Namespace(path=str(capture), flows=True)
+    assert sniff(args) == 0
+    out = capsys.readouterr().out
+    assert "L4 TCP" in out and "L7 HELLO" in out
+    assert "reassembled per direction" in out
