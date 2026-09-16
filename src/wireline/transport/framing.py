@@ -47,7 +47,8 @@ class FrameBuffer:
 
     __slots__ = ("_buf", "_secret")
 
-    def __init__(self, secret: bytes) -> None:
+    def __init__(self, secret: bytes | None) -> None:
+        """`secret=None` parses without verifying the MAC; used by the analyser only."""
         self._buf = bytearray()
         self._secret = secret
 

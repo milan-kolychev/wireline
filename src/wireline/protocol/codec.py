@@ -148,8 +148,15 @@ def verify_mac(header: bytes, payload: bytes, mac: bytes, secret: bytes) -> None
         raise ProtocolError(ErrorCode.ERR_AUTH, "hmac mismatch")
 
 
-def decode_frame(raw_header: bytes, payload: bytes, mac: bytes, secret: bytes) -> Frame:
-    """Assemble the three parts a reader collected into a verified frame."""
+def decode_frame(
+    raw_header: bytes, payload: bytes, mac: bytes, secret: bytes | None
+) -> Frame:
+    """Assemble the three parts a reader collected into a verified frame.
+
+    `secret=None` is observer mode: the frame is parsed and its CRC checked, but the MAC
+    is not verified. The traffic analyser needs this, because an observer on the wire
+    does not hold the key. No peer of the protocol may pass None.
+    """
     header = decode_header(raw_header)
     if len(payload) != header.length:
         raise ProtocolError(
@@ -159,11 +166,12 @@ def decode_frame(raw_header: bytes, payload: bytes, mac: bytes, secret: bytes) -
     if len(mac) != MAC_SIZE:
         raise ProtocolError(ErrorCode.ERR_AUTH, f"short mac: {len(mac)} bytes")
     verify_crc(payload, header.crc)  # cheap, catches accidental corruption
-    verify_mac(raw_header, payload, mac, secret)  # the actual security check
+    if secret is not None:
+        verify_mac(raw_header, payload, mac, secret)  # the actual security check
     return Frame(header.msg_type, header.seq, payload, header.flags)
 
 
-def decode(raw: bytes, secret: bytes) -> Frame:
+def decode(raw: bytes, secret: bytes | None) -> Frame:
     """Decode one complete frame from a single buffer (datagram mode)."""
     if len(raw) < HEADER.size + MAC_SIZE:
         raise ProtocolError(ErrorCode.ERR_LENGTH, f"runt frame: {len(raw)} bytes")
