@@ -34,7 +34,6 @@ VERSION = 1
 HEADER = struct.Struct("!4sBBBIII")
 MAC_SIZE = hashlib.sha256().digest_size  # 32
 MAX_PAYLOAD = 1 << 20  # 1 MiB
-MAX_FRAME = HEADER.size + MAX_PAYLOAD + MAC_SIZE
 MAX_SEQ = (1 << 32) - 1
 
 FLAG_REQUIRE_ACK = 0x01

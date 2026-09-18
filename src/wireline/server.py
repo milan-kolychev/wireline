@@ -47,7 +47,6 @@ class WirelineServer:
         self._ssl = ssl_context
         self._server: asyncio.AbstractServer | None = None
         self.connections = 0
-        self.frames_in = 0
 
     # -- lifecycle --------------------------------------------------------
 
@@ -125,7 +124,6 @@ class WirelineServer:
                     log.warning("session %s: %s", session.session_id, exc)
                     await self._apply(writer, session, session.on_protocol_error(exc))
                     break
-                self.frames_in += 1
                 reaction = session.on_frame(frame)
                 await self._apply(writer, session, reaction)
                 if reaction.close:
@@ -156,10 +154,3 @@ class WirelineServer:
             await writer.drain()
         except (ConnectionResetError, BrokenPipeError):
             log.info("peer went away before %s could be sent", frame.msg_type.name)
-
-
-async def run_server(
-    secret: bytes, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
-) -> None:
-    server = WirelineServer(secret, host, port)
-    await server.serve_forever()

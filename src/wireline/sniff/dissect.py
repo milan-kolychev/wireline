@@ -19,7 +19,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from wireline.protocol.codec import HEADER, MAC_SIZE, Frame, MsgType, decode_header
+from wireline.protocol.codec import HEADER, MAC_SIZE, Frame, decode_header
 from wireline.protocol.errors import ProtocolError
 from wireline.sniff.pcap import (
     LINKTYPE_ETHERNET,
@@ -242,7 +242,3 @@ def format_rows(rows: Iterable[Row]) -> Iterator[str]:
         if row.note:
             parts.append(f"({row.note})")
         yield "  ".join(parts)
-
-
-def known_message_types() -> list[str]:
-    return [t.name for t in MsgType]

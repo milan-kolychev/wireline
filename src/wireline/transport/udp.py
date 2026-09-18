@@ -60,12 +60,10 @@ class LossyLink:
     def __init__(self, loss_rate: float, rng: random.Random) -> None:
         self.loss_rate = loss_rate
         self.rng = rng
-        self.sent = 0
         self.dropped = 0
 
     def __call__(self, inner: Callable[[bytes, Any], None]) -> Callable[[bytes, Any], None]:
         def sendto(data: bytes, addr: Any = None) -> None:
-            self.sent += 1
             if self.rng.random() < self.loss_rate:
                 self.dropped += 1
                 return  # silently, exactly like a real network
