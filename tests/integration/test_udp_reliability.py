@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import random
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -45,8 +45,7 @@ class RawUdpPeer(asyncio.DatagramProtocol):
         self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        assert isinstance(transport, asyncio.DatagramTransport)
-        self.transport = transport
+        self.transport = cast(asyncio.DatagramTransport, transport)
 
     def datagram_received(self, data: bytes, addr: Any) -> None:
         self.replies.put_nowait(data)
