@@ -63,6 +63,10 @@ class ServerSession:
             reason=f"{code.name}: {message}",
         )
 
+    def ack(self, peer_seq: int) -> Frame:
+        """An ACK for the peer's `peer_seq`, numbered in this side's own sequence."""
+        return self._frame(MsgType.ACK, messages.encode_ack(peer_seq))
+
     # -- events -----------------------------------------------------------
 
     def on_frame(self, frame: Frame) -> Reaction:

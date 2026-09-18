@@ -28,17 +28,15 @@ from wireline.protocol import messages
 from wireline.protocol.codec import (
     FLAG_REQUIRE_ACK,
     FLAG_RETRANSMIT,
-    HEADER,
-    MAC_SIZE,
     MAX_SEQ,
     Frame,
     MsgType,
     decode,
-    decode_header,
     encode,
 )
 from wireline.protocol.errors import ErrorCode, ProtocolError
-from wireline.session import Reaction, ServerSession, State
+from wireline.session import ServerSession, State
+from wireline.transport.framing import FrameBuffer
 
 log = logging.getLogger("wireline.udp")
 
@@ -97,13 +95,11 @@ class DedupWindow:
 
 def split_datagram(data: bytes, secret: bytes) -> list[Frame]:
     """One datagram may carry an ACK and a reply back to back."""
-    frames: list[Frame] = []
-    offset = 0
-    while offset < len(data):
-        header = decode_header(data[offset : offset + HEADER.size])
-        end = offset + HEADER.size + header.length + MAC_SIZE
-        frames.append(decode(data[offset:end], secret))
-        offset = end
+    buffer = FrameBuffer(secret)
+    buffer.feed(data)
+    frames = list(buffer.drain())
+    if len(buffer):
+        raise ProtocolError(ErrorCode.ERR_LENGTH, f"{len(buffer)} trailing bytes in datagram")
     return frames
 
 
@@ -140,10 +136,10 @@ class UdpServer:
         self._send_hook = send_hook
         self._transport: asyncio.DatagramTransport | None = None
         self._sendto: Callable[[bytes, Any], None] | None = None
-        self._sessions: dict[Any, ServerSession] = {}
-        self._dedup: dict[Any, DedupWindow] = {}
+        # The dedup window belongs to the session: a new session from the same address
+        # must not be answered from the previous session's cache.
+        self._peers: dict[Any, tuple[ServerSession, DedupWindow]] = {}
         # counters that make the idempotence assertions in the tests possible
-        self.datagrams_in = 0
         self.duplicates = 0
         self.handled = 0
 
@@ -185,16 +181,20 @@ class UdpServer:
     # -- receive path ------------------------------------------------------
 
     def _on_datagram(self, data: bytes, addr: Any) -> None:
-        self.datagrams_in += 1
         assert self._sendto is not None
-        dedup = self._dedup.setdefault(addr, DedupWindow(self._dedup_size))
         try:
             frame = decode(data, self._secret)
         except ProtocolError as exc:
-            log.warning("udp %s: %s", addr, exc)
-            session = self._sessions.pop(addr, None) or ServerSession()
-            self._emit(session.on_protocol_error(exc), addr, frame_seq=None)
+            # Unlike TCP there is no connection to close. The source address of a datagram
+            # that failed its checks is not authenticated, so answering it or dropping the
+            # session it names would let anyone who can spoof the address tear down a live
+            # peer. Drop the datagram and keep no state for it.
+            log.warning("udp %s: dropped: %s", addr, exc)
             return
+
+        if addr not in self._peers:
+            self._peers[addr] = (ServerSession(), DedupWindow(self._dedup_size))
+        session, dedup = self._peers[addr]
 
         cached = dedup.get(frame.seq)
         if cached is not None:
@@ -202,35 +202,21 @@ class UdpServer:
             # instead of running the handler a second time.
             self.duplicates += 1
             log.info("udp %s: duplicate seq %s, replaying reply", addr, frame.seq)
-            self._sendto(cached, addr)
+            if cached:
+                self._sendto(cached, addr)
             return
 
-        session = self._sessions.setdefault(addr, ServerSession())
+        # The ACK and the reply travel in one datagram, ACK first, so the client can tell
+        # which request a datagram answers. The stored bytes are what a duplicate gets.
+        acks = [session.ack(frame.seq)] if frame.flags & FLAG_REQUIRE_ACK else []
         reaction = session.on_frame(frame)
         self.handled += 1
-        reply = self._emit(reaction, addr, frame_seq=frame.seq, flags=frame.flags)
+        reply = b"".join(encode(f, self._secret) for f in (*acks, *reaction.frames))
+        if reply:
+            self._sendto(reply, addr)
         dedup.put(frame.seq, reply)
-        if reaction.close or session.state is State.CLOSED:
-            self._sessions.pop(addr, None)
-
-    def _emit(
-        self, reaction: Reaction, addr: Any, frame_seq: int | None, flags: int = 0
-    ) -> bytes:
-        """Send the ACK (when asked for) and the session reply as one datagram.
-
-        Returns the bytes sent, so the dedup window can replay exactly the same answer.
-        """
-        assert self._sendto is not None
-        out = b""
-        if frame_seq is not None and flags & FLAG_REQUIRE_ACK:
-            out += encode(
-                Frame(MsgType.ACK, frame_seq, messages.encode_ack(frame_seq)), self._secret
-            )
-        for frame in reaction.frames:
-            out += encode(frame, self._secret)
-        if out:
-            self._sendto(out, addr)
-        return out
+        if reaction.close:
+            del self._peers[addr]
 
 
 class _ClientProtocol(asyncio.DatagramProtocol):
@@ -323,7 +309,7 @@ class UdpClient:
             if attempt:
                 self.retransmits += 1
             try:
-                return await asyncio.wait_for(self._await_reply(), timeout=self._rto)
+                return await asyncio.wait_for(self._await_reply(seq), timeout=self._rto)
             except TimeoutError:
                 # A lost request and a lost reply look identical from here, and the
                 # answer to both is the same: send it again. The receiver deduplicates,
@@ -334,14 +320,29 @@ class UdpClient:
             f"no reply for seq {seq} after {self._max_retries} retries",
         )
 
-    async def _await_reply(self) -> Frame:
-        """Read datagrams until a reply arrives. ACK frames are consumed here."""
+    async def _await_reply(self, seq: int) -> Frame:
+        """Read datagrams until the answer to `seq` arrives.
+
+        An answer starts with an ACK naming the request. Anything else is a late copy of
+        an earlier answer (the reply crossed a retransmission) or was not sent by the
+        server, and returning it would hand this request someone else's reply.
+        """
         while True:
             data = await self._queue.get()
-            for frame in split_datagram(data, self._secret):
-                if frame.msg_type is MsgType.ACK:
-                    continue  # delivery confirmed, the answer itself is still coming
-                if frame.msg_type is MsgType.ERROR:
-                    code, message = messages.decode_error(frame.payload)
-                    raise ProtocolError(ErrorCode(code), message)
-                return frame
+            try:
+                frames = split_datagram(data, self._secret)
+                answers_seq = (
+                    frames[0].msg_type is MsgType.ACK
+                    and messages.decode_ack(frames[0].payload) == seq
+                )
+            except ProtocolError as exc:
+                log.warning("udp seq %s: dropped undecodable datagram: %s", seq, exc)
+                continue
+            if not answers_seq:
+                log.info("udp seq %s: dropped a datagram that answers another request", seq)
+                continue
+            reply = frames[-1]  # the ACK itself when the message has no reply
+            if reply.msg_type is MsgType.ERROR:
+                code, message = messages.decode_error(reply.payload)
+                raise ProtocolError(ErrorCode(code), message)
+            return reply
