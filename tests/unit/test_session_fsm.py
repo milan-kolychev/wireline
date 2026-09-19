@@ -23,7 +23,7 @@ def error_code_of(reaction) -> ErrorCode:
     frame = reaction.frames[0]
     assert frame.msg_type is MsgType.ERROR
     code, _ = messages.decode_error(frame.payload)
-    return ErrorCode(code)
+    return code
 
 
 def ready_session() -> ServerSession:
@@ -127,3 +127,19 @@ def test_server_sequence_numbers_are_monotonic() -> None:
     session = ready_session()
     seqs = [session.on_frame(Frame(MsgType.PING, i)).frames[0].seq for i in range(1, 5)]
     assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+
+@pytest.mark.parametrize("payload", [b'{"code":"x"}', b'{"code":null}', b'{}', b"[1]"])
+def test_malformed_error_from_the_peer_does_not_raise(payload: bytes) -> None:
+    """Regression: `int(obj.get("code"))` on peer input escaped `on_frame` as ValueError or
+    TypeError, breaking its "never raises" contract."""
+    session = ready_session()
+    reaction = session.on_frame(Frame(MsgType.ERROR, 1, payload))
+    assert reaction.close
+    assert session.state is State.CLOSED
+
+
+def test_unknown_error_code_is_kept_in_the_message() -> None:
+    code, message = messages.decode_error(b'{"code":42,"message":"from v2"}')
+    assert code is ErrorCode.ERR_INTERNAL
+    assert "42" in message and "from v2" in message

@@ -129,7 +129,7 @@ class ServerSession:
             case MsgType.ERROR:
                 code, message = messages.decode_error(frame.payload)
                 self.state = State.CLOSED
-                return Reaction(close=True, reason=f"peer reported error {code}: {message}")
+                return Reaction(close=True, reason=f"peer reported {code.name}: {message}")
             case _:  # pragma: no cover - MsgType is exhaustive
                 raise ProtocolError(
                     ErrorCode.ERR_TYPE, f"unhandled type {frame.msg_type!r}"

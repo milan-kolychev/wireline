@@ -61,9 +61,16 @@ def encode_error(code: ErrorCode, message: str) -> bytes:
     return _dump({"code": int(code), "message": message})
 
 
-def decode_error(payload: bytes) -> tuple[int, str]:
+def decode_error(payload: bytes) -> tuple[ErrorCode, str]:
+    """The payload comes from the peer: a code outside section 6 becomes ERR_INTERNAL."""
     obj = _load(payload)
-    return int(obj.get("code", ErrorCode.ERR_INTERNAL)), str(obj.get("message", ""))
+    raw, message = obj.get("code"), str(obj.get("message", ""))
+    if not isinstance(raw, int):
+        raise ProtocolError(ErrorCode.ERR_STATE, "error requires an integer code")
+    try:
+        return ErrorCode(raw), message
+    except ValueError:
+        return ErrorCode.ERR_INTERNAL, f"unknown error code {raw}: {message}"
 
 
 def encode_ack(ack_seq: int) -> bytes:

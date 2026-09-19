@@ -101,7 +101,7 @@ class WirelineClient:
         frame = await self._recv()
         if frame.msg_type is MsgType.ERROR:
             code, message = messages.decode_error(frame.payload)
-            raise ProtocolError(ErrorCode(code), f"server rejected handshake: {message}")
+            raise ProtocolError(code, f"server rejected handshake: {message}")
         if frame.msg_type is not MsgType.HELLO_ACK:
             raise ProtocolError(
                 ErrorCode.ERR_STATE, f"expected HELLO_ACK, got {frame.msg_type.name}"

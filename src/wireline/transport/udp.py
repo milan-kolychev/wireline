@@ -344,5 +344,5 @@ class UdpClient:
             reply = frames[-1]  # the ACK itself when the message has no reply
             if reply.msg_type is MsgType.ERROR:
                 code, message = messages.decode_error(reply.payload)
-                raise ProtocolError(ErrorCode(code), message)
+                raise ProtocolError(code, message)
             return reply
