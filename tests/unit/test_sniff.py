@@ -55,6 +55,18 @@ def test_roundtrip_through_the_writer(tmp_path: Path) -> None:
     assert packets[1].timestamp == pytest.approx(2.25, abs=1e-6)
 
 
+def test_reads_a_big_endian_capture(tmp_path: Path) -> None:
+    """The byte order comes from the file's magic, not from the host that reads it."""
+    import struct
+
+    header = struct.pack(">IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 101)
+    record = struct.pack(">IIII", 7, 500_000, 3, 3) + b"abc"
+    path = tmp_path / "be.pcap"
+    path.write_bytes(header + record)
+    [(linktype, packet)] = list(read_packets(path))
+    assert (linktype, packet.timestamp, packet.data) == (101, 7.5, b"abc")
+
+
 def test_dissects_all_four_layers() -> None:
     rows = dissect(TCP_CAPTURE)
     handshake = rows[0]

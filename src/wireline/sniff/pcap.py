@@ -16,9 +16,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-MAGIC_LE = 0xA1B2C3D4  # seconds + microseconds, little-endian writer
+# The magic as read little-endian: the first value means a little-endian file, the second a
+# big-endian one. Reading it in host order instead would invert that on a big-endian host.
+MAGIC_LE = 0xA1B2C3D4  # seconds + microseconds
 MAGIC_BE = 0xD4C3B2A1
-FILE_HEADER = struct.Struct("=IHHiIII")  # magic, major, minor, tz, sigfigs, snaplen, link
+FILE_HEADER = struct.Struct("<IHHiIII")  # magic, major, minor, tz, sigfigs, snaplen, link
 RECORD_HEADER_SIZE = 16
 
 LINKTYPE_ETHERNET = 1
@@ -42,7 +44,7 @@ def read_packets(path: str | Path) -> Iterator[tuple[int, Packet]]:
     raw = Path(path).read_bytes()
     if len(raw) < FILE_HEADER.size:
         raise PcapError(f"file is {len(raw)} bytes, shorter than a pcap header")
-    magic = struct.unpack("=I", raw[:4])[0]
+    magic = struct.unpack("<I", raw[:4])[0]
     if magic == MAGIC_LE:
         endian = "<"
     elif magic == MAGIC_BE:
@@ -79,7 +81,7 @@ def write_packets(
     out = bytearray(
         FILE_HEADER.pack(MAGIC_LE, 2, 4, 0, 0, snaplen, linktype)
     )
-    record = struct.Struct("=IIII")
+    record = struct.Struct("<IIII")
     for timestamp, data in packets:
         sec = int(timestamp)
         usec = int(round((timestamp - sec) * 1_000_000))
