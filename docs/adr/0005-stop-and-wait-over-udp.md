@@ -26,9 +26,10 @@ does not run twice.
 - **No deduplication, only retries**: the sender cannot distinguish a lost request from a
   lost reply, so it retransmits in both cases. Without deduplication the receiver executes
   the request again, and the reliability layer turns into a request multiplier.
-- **Implicit acknowledgement by the reply itself**: fewer datagrams, but then a slow
-  handler is indistinguishable from a lost request, and the sender retransmits while the
-  receiver is still working.
+- **Implicit acknowledgement by the reply itself**: the reply frame does not say which
+  request it answers. After a retransmission, a late copy of an earlier reply would be
+  taken for the answer to the current request. The explicit `ACK` carries `ack_seq` and
+  travels in the same datagram as the reply, ahead of it.
 
 ## Consequences
 
@@ -41,3 +42,17 @@ does not run twice.
   keeps its strict rule and never sees the duplicate.
 - Loss is emulated in tests through an injected `random.Random` with a fixed seed, so a
   probabilistic property is asserted deterministically.
+
+## Amendment, 2026-09-10
+
+- The original rationale for the explicit `ACK` was that it separates a slow handler from
+  a lost request. That needs an `ACK` sent before the handler runs; the implementation
+  always sent it in one datagram with the reply, so the benefit never existed. The `ACK`
+  now does the job it can do in that position: the client accepts a datagram only if it
+  starts with the `ACK` for the request in flight. Before this, a reply slower than the
+  RTO shifted every later answer by one request.
+- The deduplication window used to be keyed by address and to outlive the session, so a
+  new session from the same address was answered from the old session's cache. It now
+  belongs to the session.
+- A datagram that fails decoding is dropped silently instead of producing an `ERROR` and
+  closing the session of its source address, which was a spoofable teardown.

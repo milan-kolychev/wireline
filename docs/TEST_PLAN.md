@@ -27,7 +27,7 @@ the full path.
 | R3 | A remote `length` value drives a huge allocation | `unit/test_codec.py::test_rejects_oversized_length_before_allocation` (security), `integration::test_oversized_length_does_not_allocate` |
 | R4 | A tampered payload is accepted because the CRC was recomputed | `unit/test_codec.py::test_detects_tampering_with_a_recomputed_crc` (security) |
 | R5 | An unauthenticated peer is served | `integration::test_frame_signed_with_the_wrong_secret_is_rejected` (security) |
-| R6 | A captured frame is replayed successfully | `unit/test_session_fsm.py::test_invariant_3_replayed_seq_is_rejected`, `integration::test_replayed_frame_is_rejected` (security) |
+| R6 | A captured frame is replayed successfully | `unit/test_session_fsm.py::test_invariant_3_replayed_seq_is_rejected`, `integration::test_replayed_frame_is_rejected` (security); across connections: `integration::test_a_session_replayed_from_a_capture_is_rejected`, **xfail, known gap** |
 | R7 | Data is accepted before the handshake | `unit::test_invariant_1_*`, `integration::test_data_before_handshake_is_rejected` |
 | R8 | A second handshake resets session state | `unit::test_invariant_2_second_hello_is_a_protocol_error`, `integration::test_second_handshake_is_rejected` |
 | R9 | A dead or silent peer holds a connection forever | `integration::test_handshake_timeout_closes_a_silent_connection`, `integration::test_idle_timeout_closes_an_established_session` |
@@ -43,6 +43,10 @@ the full path.
 | R19 | The analyser reports a frame whose body is not in the packet | `unit/test_sniff.py::test_split_frame_is_invisible_per_packet_but_visible_after_reassembly` |
 | R20 | The analyser reports foreign traffic as Wireline | `unit::test_foreign_traffic_is_skipped_not_reported` |
 | R21 | Analyser and server disagree about what arrived | `unit::test_reassembly_covers_both_directions` (same FrameBuffer as the server) |
+| R22 | A late UDP reply is returned as the answer to the next request | `integration/test_udp_reliability.py::test_a_late_reply_is_not_taken_for_the_next_one` |
+| R23 | A forged or garbage datagram closes a UDP session or allocates state | `integration::test_datagram_with_a_wrong_mac_is_dropped_without_touching_the_session`, `integration::test_unauthenticated_datagrams_leave_no_state_behind` (security) |
+| R24 | A new UDP session is answered from the previous session's cache | `integration::test_a_new_session_is_not_answered_from_the_old_cache` |
+| R25 | A malformed `ERROR` payload from the peer crashes the session | `unit/test_session_fsm.py::test_malformed_error_from_the_peer_does_not_raise` |
 
 ## 3. Test design techniques used
 
@@ -74,7 +78,10 @@ the full path.
 The analyser runs on committed fixtures built by `tools/make_pcap_fixture.py`, not on live
 captures: no privileges, no network, byte-identical input on every machine.
 
-Nothing in the suite depends on wall-clock timing except the two timeout tests, and those
-use a server fixture with short timeouts (0.5 s handshake, 1.0 s idle) and assert on the
-connection being closed rather than on a duration. Ports are ephemeral (`port=0`), so the
-suite can run in parallel with anything else on the machine.
+Wall-clock timing matters in two places. The two TCP timeout tests use a server fixture
+with short timeouts (0.5 s handshake, 1.0 s idle) and assert on the connection being
+closed rather than on a duration. The UDP tests use short RTOs (0.05-0.2 s); the late-reply
+test delays replies by 0.15 s against a 0.1 s RTO and asserts that a retransmission and a
+replayed reply actually happened, so it cannot pass without going through the late-reply
+path. Ports are ephemeral (`port=0`), so the suite can run in parallel with anything else
+on the machine.

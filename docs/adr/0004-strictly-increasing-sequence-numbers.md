@@ -12,8 +12,7 @@ frame invalid the second time it is presented.
 
 Each peer numbers its own frames from 0, strictly increasing, per connection. A receiver
 keeps the last accepted value and rejects anything not greater than it with `ERR_SEQ` and
-closes. The `HELLO` nonce makes a frame captured from an earlier session invalid in a new
-one.
+closes.
 
 ## Alternatives considered
 
@@ -32,3 +31,10 @@ one.
   an inconsistency in the protocol.
 - Sequence numbers wrap at 2^32. A connection that sends four billion frames is out of
   scope for v1 and is listed under limitations.
+
+## Amendment, 2026-09-10
+
+The original text said the `HELLO` nonce makes a frame from an earlier session invalid in
+a new one. The implementation never bound the nonce into the MAC, so that was not true: a
+captured session replays cleanly on a new connection. The claim is removed, and the gap is
+recorded in PROTOCOL.md section 8.4, in the README known issues and by an `xfail` test.

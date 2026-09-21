@@ -202,6 +202,20 @@ Deliberate, and each one is a decision rather than an omission:
 - **Single process, one task per connection.** No backpressure beyond the OS socket
   buffers.
 
+## Known issues
+
+The items below are open defects.
+
+- **No replay protection across connections.** Within a connection `seq` rejects a
+  replayed frame. A whole captured session, replayed on a new connection, is accepted: the
+  `HELLO` nonces are not bound into the MAC. See PROTOCOL.md section 8.4 and the `xfail`
+  test named there. TLS prevents the capture in the first place.
+- **UDP peers are never expired.** `UdpClient.close()` does not send `BYE`, and the UDP
+  server has no idle timeout, so every client address that completed a handshake keeps a
+  session and a deduplication window in memory until the server stops.
+- **The UDP client does not check payload size** against the datagram limit; a payload
+  above roughly 64 KiB fails in `sendto` with an `OSError`, not a `ProtocolError`.
+
 ## Status
 
 Implemented: specification, codec, framing, session state machine, TCP server and client,

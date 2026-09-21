@@ -106,6 +106,30 @@ async def test_replayed_frame_is_rejected(server: WirelineServer, peer: RawPeer)
     assert code == ErrorCode.ERR_SEQ
 
 
+@pytest.mark.security
+@pytest.mark.xfail(
+    strict=True,
+    reason="known gap: the HELLO nonces are exchanged but not bound into the MAC "
+    "(PROTOCOL.md 8.4). Remove this marker together with the fix.",
+)
+async def test_a_session_replayed_from_a_capture_is_rejected(
+    server: WirelineServer, peer: RawPeer
+) -> None:
+    """Every frame of an earlier session, replayed byte for byte on a new connection.
+
+    Sequence numbers restart at 0 per connection and the MAC key is the same pre-shared
+    key in every session, so nothing distinguishes these bytes from a fresh session.
+    """
+    captured = [
+        encode(Frame(MsgType.HELLO, 0, messages.encode_hello("victim")), SECRET),
+        encode(Frame(MsgType.DATA, 1, b"transfer 100"), SECRET),
+    ]
+    for raw in captured:  # the attacker never needs SECRET, only the capture
+        await peer.write_bytes(raw)
+    assert (await peer.recv()).msg_type is MsgType.HELLO_ACK
+    assert (await peer.recv()).msg_type is not MsgType.DATA, "replayed DATA was executed"
+
+
 async def test_garbage_does_not_kill_the_listener(
     server: WirelineServer, peer: RawPeer
 ) -> None:

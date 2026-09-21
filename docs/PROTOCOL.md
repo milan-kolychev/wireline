@@ -110,6 +110,9 @@ Invariants that must be covered by explicit tests:
 Rule 6 has a caveat: after a decode failure the stream position is no longer trustworthy,
 so recovery is not attempted. The connection is closed; the process keeps running.
 
+Over UDP, rules 5 and 6 close nothing: a datagram that fails decoding is dropped without
+an answer, because its source address is not authenticated (section 9).
+
 ## 6. Error codes
 
 | Code | Name           | Cause                                                |
@@ -161,11 +164,22 @@ differing byte and leaks the prefix length through timing.
 
 ### 8.4 Replay
 
-A captured frame is a valid frame. Protection is the strictly increasing per-connection
-`seq` plus the `HELLO` nonce, which makes a frame from an earlier session invalid in a
-new one. Over UDP the same `seq` may legitimately arrive twice as a retransmission;
-there the receiver deduplicates against a window of recently seen values instead of
-rejecting the connection.
+A captured frame is a valid frame. Within a connection, the strictly increasing `seq`
+rejects a replayed frame with `ERR_SEQ`.
+
+Across connections v1 does not protect against replay. `seq` restarts at 0 on every
+connection and every frame is signed with the same pre-shared key, so a captured session
+replayed byte for byte on a new connection is accepted and executed. The `HELLO` and
+`HELLO_ACK` nonces are exchanged but are not bound into the MAC, so they do not change
+this. Binding them, for example through a per-session key derived from the pre-shared key
+and both nonces, is not implemented. Until it is, TLS is what stops an on-path attacker
+from capturing and replaying. The gap is recorded by
+`tests/integration/test_tcp_session.py::test_a_session_replayed_from_a_capture_is_rejected`,
+marked `xfail(strict=True)`: it starts failing the suite the day the gap is closed.
+
+Over UDP the same `seq` may legitimately arrive twice as a retransmission; there the
+receiver deduplicates against a window of recently seen values instead of rejecting the
+connection.
 
 ### 8.5 No custom cryptography
 
@@ -179,10 +193,23 @@ problem.
 |-----------|------------------------------------|------------------------------------------|
 | TCP       | ordering, retransmission, flow control | framing, auth, state machine           |
 | TCP+TLS   | the above plus confidentiality      | same                                     |
-| UDP       | nothing beyond best-effort datagrams | framing (one frame per datagram), ACK, retransmit, dedup |
+| UDP       | nothing beyond best-effort datagrams | framing, ACK, retransmit, dedup |
 
 Over UDP a frame must fit in a single datagram; the practical payload limit is therefore
 much lower than `MAX_PAYLOAD` and is bounded by the path MTU.
+
+A request is one frame in one datagram. An answer is one datagram holding the `ACK` for
+the request, followed by the reply when the request produced one. The `ack_seq` of that
+`ACK` is how the client tells which request a datagram answers; a datagram that does not
+start with the `ACK` for the request in flight is a late copy of an earlier answer and is
+dropped.
+
+A datagram that fails decoding (magic, version, length, CRC or MAC) is dropped by the
+server without an `ERROR` and without touching the session of its source address. The
+address is not authenticated: answering it, or closing the session it names, would let
+anyone who can spoof that address tear down a live peer. Per-peer state, including the
+deduplication window, is created only for a frame that passed its checks and is discarded
+together with the session.
 
 ## 10. Versioning
 
