@@ -174,15 +174,6 @@ def decode(raw: bytes, secret: bytes | None) -> Frame:
     """Decode one complete frame from a single buffer (datagram mode)."""
     if len(raw) < HEADER.size + MAC_SIZE:
         raise ProtocolError(ErrorCode.ERR_LENGTH, f"runt frame: {len(raw)} bytes")
-    header = decode_header(raw[: HEADER.size])
-    expected = HEADER.size + header.length + MAC_SIZE
-    if len(raw) != expected:
-        raise ProtocolError(
-            ErrorCode.ERR_LENGTH, f"frame is {len(raw)} bytes, expected {expected}"
-        )
-    return decode_frame(
-        raw[: HEADER.size],
-        raw[HEADER.size : HEADER.size + header.length],
-        raw[HEADER.size + header.length :],
-        secret,
-    )
+    # decode_frame compares the body with the declared length, so a short or padded
+    # datagram fails there with ERR_LENGTH.
+    return decode_frame(raw[: HEADER.size], raw[HEADER.size : -MAC_SIZE], raw[-MAC_SIZE:], secret)
