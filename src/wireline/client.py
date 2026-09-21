@@ -11,7 +11,6 @@ import contextlib
 import logging
 import socket
 import ssl
-from types import TracebackType
 
 from wireline.protocol import messages
 from wireline.protocol.codec import MAX_SEQ, Frame, MsgType, encode
@@ -85,12 +84,7 @@ class WirelineClient:
         await self.connect()
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
+    async def __aexit__(self, *exc_info: object) -> None:
         await self.close()
 
     # -- protocol ---------------------------------------------------------

@@ -21,7 +21,6 @@ import logging
 import random
 from collections import OrderedDict
 from collections.abc import Callable
-from types import TracebackType
 from typing import Any, cast
 
 from wireline.protocol import messages
@@ -170,12 +169,7 @@ class UdpServer:
         await self.start()
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
+    async def __aexit__(self, *exc_info: object) -> None:
         self.close()
 
     # -- receive path ------------------------------------------------------
@@ -285,12 +279,7 @@ class UdpClient:
         await self.connect()
         return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
+    async def __aexit__(self, *exc_info: object) -> None:
         self.close()
 
     async def send_data(self, payload: bytes) -> bytes:
