@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -76,8 +77,6 @@ def test_parser_reads_sniff_options() -> None:
 
 
 def test_sniff_command_prints_layers_and_flows(capsys: pytest.CaptureFixture[str]) -> None:
-    from pathlib import Path
-
     from wireline.__main__ import sniff
 
     capture = Path(__file__).resolve().parents[1] / "fixtures" / "tcp-session.pcap"
@@ -86,3 +85,23 @@ def test_sniff_command_prints_layers_and_flows(capsys: pytest.CaptureFixture[str
     out = capsys.readouterr().out
     assert "L4 TCP" in out and "L7 HELLO" in out
     assert "reassembled per direction" in out
+
+
+def test_expected_failures_print_one_line_and_exit_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A wrong key or a dead server is an operator error, not a traceback."""
+    import socket
+
+    from wireline.__main__ import main
+
+    with socket.socket() as probe:  # a port that was free a moment ago, so nothing listens
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    assert main(["--port", str(port), "ping"]) == 1
+    assert main(["sniff", str(tmp_path / "missing.pcap")]) == 1
+    (tmp_path / "junk.pcap").write_bytes(b"not a capture at all, just text")
+    assert main(["sniff", str(tmp_path / "junk.pcap")]) == 1
+    err = capsys.readouterr().err
+    assert "ConnectionRefusedError" in err and "FileNotFoundError" in err
+    assert "PcapError" in err and "Traceback" not in err

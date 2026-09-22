@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 import time
 
 from wireline.client import WirelineClient
 from wireline.config import load_secret, setup_logging
+from wireline.protocol.errors import ProtocolError
 from wireline.server import WirelineServer
 from wireline.sniff.dissect import dissect, format_rows, reassemble_flows, summarise
+from wireline.sniff.pcap import PcapError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,13 +86,18 @@ def sniff(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging(args.log_level)
-    if args.command == "sniff":  # the only command that needs no event loop
-        return sniff(args)
     handlers = {"serve": _serve, "ping": _ping, "send": _send}
     try:
+        if args.command == "sniff":  # the only command that needs no event loop
+            return sniff(args)
         return asyncio.run(handlers[args.command](args))
     except KeyboardInterrupt:
         return 130
+    except (ProtocolError, PcapError, OSError, EOFError) as exc:
+        # Expected failures (wrong key, nothing listening, peer gone, bad capture file)
+        # get one line and exit code 1. Anything else is a bug and keeps its traceback.
+        print(f"wireline: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
