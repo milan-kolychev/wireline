@@ -22,22 +22,30 @@ from wireline.sniff.pcap import PcapError
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # Shared options go on every subcommand, not on the top-level parser, so they are
+    # written after the command: `wireline serve --port 9000`, as in git or docker.
+    # Adding them to both levels would not work: the subcommand default would silently
+    # overwrite a value given before the command.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--host", default="127.0.0.1")
+    common.add_argument("--port", type=int, default=9000)
+    common.add_argument("--secret", default=None, help="dev only, prefer WIRELINE_SECRET")
+    common.add_argument("--log-level", default="INFO")
+
     parser = argparse.ArgumentParser(prog="wireline", description=__doc__)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=9000)
-    parser.add_argument("--secret", default=None, help="dev only, prefer WIRELINE_SECRET")
-    parser.add_argument("--log-level", default="INFO")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("serve", help="run the TCP server")
+    sub.add_parser("serve", parents=[common], help="run the TCP server")
 
-    ping = sub.add_parser("ping", help="handshake and send PING frames")
+    ping = sub.add_parser("ping", parents=[common], help="handshake and send PING frames")
     ping.add_argument("--count", type=int, default=3)
 
-    send = sub.add_parser("send", help="send one DATA frame and print the echo")
+    send = sub.add_parser(
+        "send", parents=[common], help="send one DATA frame and print the echo"
+    )
     send.add_argument("--text", required=True)
 
-    sniff = sub.add_parser("sniff", help="dissect a pcap file layer by layer")
+    sniff = sub.add_parser("sniff", parents=[common], help="dissect a pcap file layer by layer")
     sniff.add_argument("path")
     sniff.add_argument(
         "--flows", action="store_true", help="also reassemble messages per direction"

@@ -18,8 +18,19 @@ def test_parser_requires_a_subcommand() -> None:
 
 
 def test_parser_reads_ping_options() -> None:
-    args = build_parser().parse_args(["--port", "9100", "ping", "--count", "7"])
+    args = build_parser().parse_args(["ping", "--port", "9100", "--count", "7"])
     assert (args.command, args.port, args.count) == ("ping", 9100, 7)
+
+
+def test_options_before_the_subcommand_are_rejected() -> None:
+    """Options belong to the subcommand, the way git and docker do it."""
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--port", "9100", "ping"])
+
+
+def test_serve_accepts_the_options_from_the_readme() -> None:
+    args = build_parser().parse_args(["serve", "--port", "9000", "--log-level", "DEBUG"])
+    assert (args.command, args.port, args.log_level) == ("serve", 9000, "DEBUG")
 
 
 def test_parser_reads_send_options() -> None:
@@ -98,7 +109,7 @@ def test_expected_failures_print_one_line_and_exit_1(
     with socket.socket() as probe:  # a port that was free a moment ago, so nothing listens
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    assert main(["--port", str(port), "ping"]) == 1
+    assert main(["ping", "--port", str(port)]) == 1
     assert main(["sniff", str(tmp_path / "missing.pcap")]) == 1
     (tmp_path / "junk.pcap").write_bytes(b"not a capture at all, just text")
     assert main(["sniff", str(tmp_path / "junk.pcap")]) == 1
