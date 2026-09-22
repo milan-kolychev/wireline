@@ -77,5 +77,6 @@ closes one connection.
 
 One asyncio task per connection, cooperative scheduling, single process. No locks are
 needed because a `ServerSession` is touched by exactly one task. The measured cost of this
-model is in `docs/evidence/benchmark-loopback.md`: throughput keeps scaling with client
-count while per-request p95 rises, which is the ordinary saturation trade-off, not a bug.
+model is in `docs/evidence/benchmark-loopback.md`: with 100 concurrent clients per-request
+latency grows 60-70 times and total throughput does not grow, so on the measured machine a
+single event loop saturates below 100 clients.

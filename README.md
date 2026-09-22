@@ -94,17 +94,25 @@ Three tests are worth opening first:
 
 ## Performance
 
-Measured on loopback with the echo application; full output and method in
+Measured on Windows 11 (build 26200), Python 3.13.3, loopback, echo application. Two runs
+of the same command; the table gives the range between them. Raw output and method in
 [docs/evidence/benchmark-loopback.md](docs/evidence/benchmark-loopback.md).
 
 | Scenario | p50 | p95 | p99 | Throughput |
 |---|---|---|---|---|
-| sequential, 1 KiB payload, 2000 requests | 0.13 ms | 0.18 ms | 0.20 ms | ~7 200 msg/s, 14 MB/s |
-| 100 concurrent clients, 20 requests each | 9.6 ms | 9.9 ms | 10.7 ms | ~8 800 rps, 0 errors |
+| sequential, 1 KiB payload, 2000 requests | 0.15-0.17 ms | 0.26-0.35 ms | 0.45-0.55 ms | ~5 200-6 000 msg/s, 10-12 MB/s |
+| 100 concurrent clients, 20 requests each | 9.6-11.4 ms | 18.7-22.7 ms | 19.4-25.0 ms | ~3 900-4 800 rps, 0 errors |
 
-Reading: per-request latency grows roughly a hundredfold under 100 clients while total
-throughput grows only 20%. That is the saturation point, and it is the argument against
-"more parallelism is always faster".
+Reading:
+
+- The two runs differ by 20-35% (p95 sequential, rps under load), so single numbers from
+  one run mean little on a laptop.
+- Under 100 clients per-request latency grows 60-70 times (p50 0.16 ms to 10-11 ms), and
+  total throughput does not grow: it is lower than in the sequential case. On this machine
+  the saturation point is below 100 concurrent clients.
+- The sequential throughput is requests divided by the sum of latencies, not by wall-clock
+  time, so it ignores the client's gaps between requests and is somewhat inflated. The
+  difference to the concurrent figure is too large to be explained by that alone.
 
 Reproduce with:
 
