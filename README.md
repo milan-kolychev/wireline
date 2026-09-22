@@ -34,18 +34,26 @@ every frame, and a state machine with timeouts.
 Windows / PowerShell:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-$env:WIRELINE_SECRET = "local-dev-secret"
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
 
 # terminal 1
+$env:WIRELINE_SECRET = "local-dev-secret"
 python -m wireline serve --port 9000
 
-# terminal 2 (same WIRELINE_SECRET)
+# terminal 2: $env: lives only in its own terminal, so set it again
+$env:WIRELINE_SECRET = "local-dev-secret"
 python -m wireline ping --count 5
 python -m wireline send --text "hello"
 ```
+
+- `py` is the Python launcher. A bare `python` can start the Microsoft Store stub, which
+  prints `Python` and creates nothing.
+- If PowerShell refuses to run the activation script:
+  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (current window only).
+- Activation is optional: `.venv\Scripts\python.exe -m pytest` works without it.
+- Options go after the command: `serve --port 9000`, not `--port 9000 serve`.
 
 Linux / macOS: `python3 -m venv .venv && source .venv/bin/activate`, then the same
 commands with `export WIRELINE_SECRET=...`.
@@ -53,10 +61,15 @@ commands with `export WIRELINE_SECRET=...`.
 Expected output of `ping`:
 
 ```
-session 4f2a1c8b9d01
-pong 1/5  rtt=0.21 ms
-...
+session 72f08a418fb6
+pong 1/5  rtt=0.52 ms
+pong 2/5  rtt=0.37 ms
+pong 3/5  rtt=0.36 ms
+pong 4/5  rtt=0.44 ms
+pong 5/5  rtt=0.42 ms
 ```
+
+The session id is new on every connection.
 
 ## Tests
 
@@ -177,9 +190,10 @@ Decisions and their trade-offs are recorded in [docs/adr/](docs/adr/):
 
 | Symptom | First check | Usual cause |
 |---|---|---|
-| `ERR_AUTH` on the first frame | `WIRELINE_SECRET` on both sides | client and server have different keys |
+| `ConnectionRefusedError` (`WinError 1225` on Windows) | is `serve` running on that host and port | nothing is listening |
+| `ERR_AUTH` on the first frame | `WIRELINE_SECRET` on both sides | client and server have different keys; in PowerShell `$env:` is set per terminal |
 | `ERR_MAGIC` immediately | what is actually connecting to the port | a browser, a health check, or a port collision |
-| client hangs then times out | `ss -tn` for the connection state | server started but not listening on that interface |
+| client hangs then times out | `ss -tn` (Linux) or `netstat -ano` (Windows) for the connection state | server started but not listening on that interface |
 | connection drops after ~30 s of silence | server log for "idle timeout" | working as designed; send PING to keep it |
 | `ERR_SEQ` | whether frames are being replayed or reordered | a retransmit at the application level, or a real replay |
 
@@ -220,6 +234,8 @@ The items below are open defects.
 
 Implemented: specification, codec, framing, session state machine, TCP server and client,
 TLS, UDP reliability binding, pcap analyser, CLI, unit and integration suites, benchmark.
+
+Checked on Windows 11 (build 26200) with Python 3.13.3.
 
 The reference application is an echo service. The protocol does not care what `DATA`
 means; the echo is the smallest behaviour that makes the transport observable.

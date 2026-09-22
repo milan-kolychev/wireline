@@ -31,18 +31,26 @@ TCP даёт упорядоченный поток байтов. Он не да�
 Windows, PowerShell:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-$env:WIRELINE_SECRET = "local-dev-secret"
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
 
 # терминал 1
+$env:WIRELINE_SECRET = "local-dev-secret"
 python -m wireline serve --port 9000
 
-# терминал 2, с тем же WIRELINE_SECRET
+# терминал 2: $env: действует только в своём терминале, поэтому задаём ещё раз
+$env:WIRELINE_SECRET = "local-dev-secret"
 python -m wireline ping --count 5
 python -m wireline send --text "hello"
 ```
+
+- `py` — лаунчер Python. Просто `python` может запустить заглушку из Microsoft Store,
+  которая печатает `Python` и ничего не создаёт.
+- Если PowerShell не даёт выполнить скрипт активации:
+  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (только для текущего окна).
+- Активация не обязательна: `.venv\Scripts\python.exe -m pytest` работает и без неё.
+- Опции пишутся после команды: `serve --port 9000`, а не `--port 9000 serve`.
 
 Linux и macOS: `python3 -m venv .venv && source .venv/bin/activate`, дальше те же команды,
 переменная задаётся через `export WIRELINE_SECRET=...`.
@@ -50,10 +58,15 @@ Linux и macOS: `python3 -m venv .venv && source .venv/bin/activate`, дальш
 Ожидаемый вывод `ping`:
 
 ```
-session 4f2a1c8b9d01
-pong 1/5  rtt=0.21 ms
-...
+session 72f08a418fb6
+pong 1/5  rtt=0.52 ms
+pong 2/5  rtt=0.37 ms
+pong 3/5  rtt=0.36 ms
+pong 4/5  rtt=0.44 ms
+pong 5/5  rtt=0.42 ms
 ```
+
+Идентификатор сессии новый при каждом подключении.
 
 ## Тесты
 
@@ -174,9 +187,10 @@ python -m wireline sniff tests/fixtures/tcp-session.pcap --flows
 
 | Симптом | Что проверить первым | Обычная причина |
 |---|---|---|
-| `ERR_AUTH` на первом кадре | `WIRELINE_SECRET` с обеих сторон | у клиента и сервера разные ключи |
+| `ConnectionRefusedError` (`WinError 1225` в Windows) | запущен ли `serve` на этом адресе и порту | порт никто не слушает |
+| `ERR_AUTH` на первом кадре | `WIRELINE_SECRET` с обеих сторон | у клиента и сервера разные ключи; в PowerShell `$env:` задаётся отдельно в каждом терминале |
 | `ERR_MAGIC` сразу после подключения | кто именно подключается к порту | браузер, health check или занятый порт |
-| клиент висит и отваливается по таймауту | `ss -tn`, состояние соединения | сервер поднят, но слушает другой интерфейс |
+| клиент висит и отваливается по таймауту | `ss -tn` (Linux) или `netstat -ano` (Windows), состояние соединения | сервер поднят, но слушает другой интерфейс |
 | соединение рвётся после ~30 с молчания | лог сервера, строка `idle timeout` | так и задумано, для удержания слать PING |
 | `ERR_SEQ` | повторяются ли кадры и не переупорядочены ли они | повторная отправка на уровне приложения либо реальный replay |
 
@@ -216,6 +230,8 @@ python -m wireline sniff tests/fixtures/tcp-session.pcap --flows
 
 Сделано: спецификация, кодек, кадрирование, автомат состояний, TCP-сервер и клиент, TLS,
 UDP-режим надёжности, анализатор pcap, CLI, unit- и integration-наборы, бенчмарк.
+
+Проверено на Windows 11 (сборка 26200), Python 3.13.3.
 
 Справочное приложение — эхо-сервис. Протоколу всё равно, что означает `DATA`; эхо — это
 минимальное поведение, при котором транспорт наблюдаем.
