@@ -15,7 +15,7 @@ import time
 
 from wireline.client import WirelineClient
 from wireline.config import load_secret, setup_logging
-from wireline.protocol.errors import ProtocolError
+from wireline.protocol.errors import ErrorCode, ProtocolError
 from wireline.server import WirelineServer
 from wireline.sniff.dissect import dissect, format_rows, reassemble_flows, summarise
 from wireline.sniff.pcap import PcapError
@@ -91,6 +91,20 @@ def sniff(args: argparse.Namespace) -> int:
     return 0
 
 
+def describe_failure(exc: BaseException, args: argparse.Namespace) -> str:
+    """One line for an expected failure: what happened and what to check first."""
+    detail = str(exc)  # TimeoutError from asyncio.wait_for has no message
+    text = f"wireline: {type(exc).__name__}" + (f": {detail}" if detail else "")
+    address = f"{getattr(args, 'host', '?')}:{getattr(args, 'port', '?')}"
+    if isinstance(exc, ConnectionRefusedError):
+        return f"{text} - is a server listening on {address}?"
+    if isinstance(exc, TimeoutError):
+        return f"{text} - no reply from {address} in time"
+    if isinstance(exc, ProtocolError) and exc.code is ErrorCode.ERR_AUTH:
+        return f"{text} - do client and server use the same WIRELINE_SECRET?"
+    return text
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging(args.log_level)
@@ -104,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ProtocolError, PcapError, OSError, EOFError) as exc:
         # Expected failures (wrong key, nothing listening, peer gone, bad capture file)
         # get one line and exit code 1. Anything else is a bug and keeps its traceback.
-        print(f"wireline: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(describe_failure(exc, args), file=sys.stderr)
         return 1
 
 

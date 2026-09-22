@@ -116,3 +116,20 @@ def test_expected_failures_print_one_line_and_exit_1(
     err = capsys.readouterr().err
     assert "ConnectionRefusedError" in err and "FileNotFoundError" in err
     assert "PcapError" in err and "Traceback" not in err
+    assert f"is a server listening on 127.0.0.1:{port}?" in err
+
+
+def test_failure_hints_name_the_first_thing_to_check() -> None:
+    from wireline.__main__ import describe_failure
+    from wireline.protocol.errors import ErrorCode, ProtocolError
+
+    args = argparse.Namespace(host="127.0.0.1", port=9000)
+    auth = describe_failure(ProtocolError(ErrorCode.ERR_AUTH, "hmac mismatch"), args)
+    assert auth.startswith("wireline: ProtocolError: ERR_AUTH: hmac mismatch")
+    assert "WIRELINE_SECRET" in auth
+    # asyncio.wait_for raises a TimeoutError with an empty message
+    assert describe_failure(TimeoutError(), args) == (
+        "wireline: TimeoutError - no reply from 127.0.0.1:9000 in time"
+    )
+    other = describe_failure(ProtocolError(ErrorCode.ERR_SEQ, "replayed seq 3"), args)
+    assert other == "wireline: ProtocolError: ERR_SEQ: replayed seq 3"
