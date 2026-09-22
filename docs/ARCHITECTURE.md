@@ -17,12 +17,12 @@
 ```
 
 Dependencies point downwards only. `protocol/` imports nothing from the project except
-`protocol/errors.py`; `session.py` imports `protocol/` but never `asyncio`. This is what
-makes the state machine testable without a socket (ADR-0003).
+`protocol/errors.py`; `session.py` imports `protocol/` but never `asyncio`. This allows the
+state machine to be tested without a socket (ADR-0003).
 
 ## 2. Mapping to OSI
 
-The point of the project is that these layers are not decoration.
+The table maps each OSI layer to the part of the system that implements it.
 
 | OSI | Here |
 |---|---|
@@ -33,10 +33,10 @@ The point of the project is that these layers are not decoration.
 | L6 presentation | `codec.py` (byte order, framing) and TLS when enabled |
 | L7 application | message types and the echo reference application |
 
-A useful diagnostic consequence: if a connection is established but no reply arrives, the
-question "which layer" has a concrete answer here. `ss -tn` shows L4, a capture shows
-whether frames left the host, the server log shows whether decoding succeeded, and the
-session state says whether the handshake completed.
+The mapping is also used for diagnosis. If a connection is established but no reply
+arrives, each layer can be checked separately: `ss -tn` shows L4, a capture shows whether
+frames left the host, the server log shows whether decoding succeeded, and the session
+state shows whether the handshake completed.
 
 ## 3. Event flow
 
@@ -59,10 +59,10 @@ Reaction(frames, close, reason)
 transport: encode + write + drain, close if asked
 ```
 
-Every failure in the decode chain raises `ProtocolError` with a code. The transport turns
-it into `session.on_protocol_error`, which produces an ERROR frame and closes. Nothing in
-the decode path is allowed to take the listener down; the handler catches, logs and
-closes one connection.
+Every failure in the decode chain raises `ProtocolError` with a code. The transport passes
+it to `session.on_protocol_error`, which produces an ERROR frame and closes the connection.
+No error in the decode path may stop the listener: the handler catches the exception, logs
+it and closes only the affected connection.
 
 ## 4. Failure boundaries
 
@@ -76,7 +76,7 @@ closes one connection.
 ## 5. Concurrency model
 
 One asyncio task per connection, cooperative scheduling, single process. No locks are
-needed because a `ServerSession` is touched by exactly one task. The measured cost of this
-model is in `docs/evidence/benchmark-loopback.md`: with 100 concurrent clients per-request
-latency grows 60-70 times and total throughput does not grow, so on the measured machine a
-single event loop saturates below 100 clients.
+needed because a `ServerSession` is accessed by exactly one task. The measured cost of this
+model is recorded in `docs/evidence/benchmark-loopback.md`: with 100 concurrent clients,
+per-request latency grows 60-70 times and total throughput does not grow, so on the
+measured machine a single event loop saturates below 100 clients.

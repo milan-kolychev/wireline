@@ -7,9 +7,9 @@ Status: stable for v1. Any change to the frame layout requires a version bump.
 ## 1. Purpose
 
 Wireline is a small binary request/response protocol for authenticated message exchange
-over TCP (and, in reliable mode, over UDP). It exists to make the message boundary,
-the byte order, the integrity check and the authentication check explicit instead of
-delegating them to a library.
+over TCP (and, in reliable mode, over UDP). The message boundary, the byte order, the
+integrity check and the authentication check are defined explicitly, at the level of the
+specification.
 
 Scope:
 
@@ -18,12 +18,12 @@ Scope:
 - an explicit connection state machine with testable invariants;
 - optional reliability (ACK, retransmit, deduplication) when carried over UDP.
 
-Out of scope: confidentiality. Wireline does not encrypt. Encryption is delegated to TLS
+Confidentiality is out of scope: Wireline does not encrypt and delegates encryption to TLS
 (`ssl.SSLContext`), see section 9.
 
 ## 2. Frame layout
 
-All integers are big-endian ("network order"). No padding, no alignment
+All integers are big-endian (network byte order), with no padding or alignment
 (`struct` format `!4sBBBIII`).
 
 ```
@@ -39,8 +39,8 @@ All integers are big-endian ("network order"). No padding, no alignment
 
 | Field   | Size | Offset | Description                                                     |
 |---------|------|--------|-----------------------------------------------------------------|
-| magic   | 4    | 0      | `b"WIRE"`. Rejects foreign clients and stream desynchronisation. |
-| ver     | 1    | 4      | Protocol version. Mismatch -> `ERR_VERSION`.                     |
+| magic   | 4    | 0      | `b"WIRE"`. Rejects foreign clients and detects stream desynchronisation. |
+| ver     | 1    | 4      | Protocol version. A mismatch is rejected with `ERR_VERSION`.     |
 | typ     | 1    | 5      | Message type, see section 3.                                     |
 | flags   | 1    | 6      | Bit flags, see section 4.                                        |
 | seq     | 4    | 7      | Sender sequence number, per connection, strictly increasing.      |
@@ -51,9 +51,9 @@ All integers are big-endian ("network order"). No padding, no alignment
 
 Total frame size: `19 + length + 32`.
 
-Header size is fixed, so a receiver reads in three steps: 19 bytes of header, then exactly
-`length` bytes, then exactly 32 bytes of MAC. `length` is validated against `MAX_PAYLOAD`
-**before** any buffer of that size is allocated (section 8.1).
+Header size is fixed, so a receiver reads a frame in three steps: 19 bytes of header, then
+exactly `length` bytes, then exactly 32 bytes of MAC. `length` is validated against
+`MAX_PAYLOAD` before any buffer of that size is allocated (section 8.1).
 
 ## 3. Message types
 
@@ -69,8 +69,8 @@ Header size is fixed, so a receiver reads in three steps: 19 bytes of header, th
 | 8     | `BYE`       | both            | empty                                        |
 
 Unknown type values are rejected with `ERR_TYPE`. New types may be added in a future
-version; a v1 receiver must not silently ignore them, because silent tolerance hides
-version drift.
+version. A v1 receiver must not silently ignore them, because silently accepting unknown
+types would hide a version mismatch.
 
 ## 4. Flags
 
@@ -78,7 +78,7 @@ version drift.
 |------|---------------------|-----------------------------------------------------------|
 | 0x01 | `FLAG_REQUIRE_ACK`  | Sender expects an `ACK` for this `seq`. Used in UDP mode.  |
 | 0x02 | `FLAG_RETRANSMIT`   | This frame is a retransmission of an earlier `seq`.        |
-| 0x04 | `FLAG_COMPRESSED`   | Reserved, not implemented in v1. Setting it is an error.   |
+| 0x04 | `FLAG_COMPRESSED`   | Reserved, not implemented in v1. Setting it is an error (`ERR_FLAGS`). |
 
 ## 5. State machine
 
@@ -88,13 +88,14 @@ NEW --HELLO--> HANDSHAKE --HELLO_ACK--> READY --BYE--> CLOSING --> CLOSED
  +-- timeout ------+-- bad_auth ----------+-- protocol_error --> CLOSED
 ```
 
-Role difference:
+The server and the client move through the state machine differently.
 
-- The **server** session starts in `NEW`. A valid `HELLO` moves it to `READY` and it
-  answers with `HELLO_ACK`. `HANDSHAKE` is not occupied on the server: validation and
-  response happen in one step.
-- The **client** session enters `HANDSHAKE` after sending `HELLO` and stays there until
-  `HELLO_ACK` arrives. This is where the client-side timeout applies.
+The server session starts in `NEW`. A valid `HELLO` moves it to `READY`, and the server
+answers with `HELLO_ACK`. The server never occupies `HANDSHAKE`, because validation and
+response happen in one step.
+
+The client session enters `HANDSHAKE` after sending `HELLO` and stays there until
+`HELLO_ACK` arrives. The client-side timeout applies in this state.
 
 Invariants that must be covered by explicit tests:
 
@@ -107,11 +108,11 @@ Invariants that must be covered by explicit tests:
 | 5 | Invalid MAC                                                       | `ERR_AUTH`, close         |
 | 6 | Any `ProtocolError` while decoding                                | `ERROR` if possible, close |
 
-Rule 6 has a caveat: after a decode failure the stream position is no longer trustworthy,
-so recovery is not attempted. The connection is closed; the process keeps running.
+Caveat to rule 6: after a decode failure the stream position is no longer trustworthy, so
+recovery is not attempted. The connection is closed and the process keeps running.
 
-Over UDP, rules 5 and 6 close nothing: a datagram that fails decoding is dropped without
-an answer, because its source address is not authenticated (section 9).
+Over UDP, rules 5 and 6 do not close anything. A datagram that fails decoding is dropped
+without an answer, because its source address is not authenticated (section 9).
 
 ## 6. Error codes
 
@@ -135,7 +136,7 @@ an answer, because its source address is not authenticated (section 9).
 |------------------|----------|-----------------------------------------------------------|
 | `MAX_PAYLOAD`    | 1 MiB    | Bounds a single allocation driven by a remote value.       |
 | `MAX_FRAME`      | 1 MiB+51 | `MAX_PAYLOAD` plus header and MAC.                         |
-| `idle_timeout`   | 30 s     | A TCP connection can look alive long after the peer dies.  |
+| `idle_timeout`   | 30 s     | A TCP connection can look open long after the peer process has exited. |
 | `handshake_timeout` | 5 s   | An unauthenticated connection must not hold resources.     |
 | `udp_rto`        | 0.5 s    | Fixed retransmit timeout in v1, see limitations.           |
 | `udp_max_retries`| 5        | Bounds the total time a send may block.                    |
@@ -145,47 +146,46 @@ an answer, because its source address is not authenticated (section 9).
 
 ### 8.1 Length before allocation
 
-`length` is a 4-byte field controlled by the remote side. Reading the body before
-validating it against `MAX_PAYLOAD` turns 19 bytes of input into a 4 GiB allocation
-attempt. `decode_header` therefore rejects oversized `length` before the body is read.
-Covered by `tests/unit/test_codec.py::test_rejects_oversized_length_before_allocation`.
+`length` is a 4-byte field controlled by the remote side. If the body were read before
+`length` is validated against `MAX_PAYLOAD`, 19 bytes of input could trigger a 4 GiB
+allocation attempt. `decode_header` therefore rejects an oversized `length` before the body
+is read. Covered by
+`tests/unit/test_codec.py::test_rejects_oversized_length_before_allocation`.
 
 ### 8.2 CRC32 is not a security control
 
 CRC32 detects accidental corruption. Forging a payload with a matching CRC is trivial.
-It is kept because it is cheap and because it fails fast on a desynchronised stream;
-the security property comes from the HMAC alone.
+CRC32 is kept because it is cheap and fails fast on a desynchronised stream. The security
+property comes from the HMAC alone.
 
 ### 8.3 HMAC and comparison
 
 The MAC covers the header as well as the payload, so `seq`, `type` and `flags` cannot be
-altered in flight. Comparison uses `hmac.compare_digest`; `==` returns on the first
-differing byte and leaks the prefix length through timing.
+altered in transit. Comparison uses `hmac.compare_digest`. The `==` operator returns on the
+first differing byte and leaks the length of the matching prefix through timing.
 
 ### 8.4 Replay
 
-A captured frame is a valid frame. Within a connection, the strictly increasing `seq`
-rejects a replayed frame with `ERR_SEQ`.
+A captured frame remains a valid frame and can be sent again. Within a connection, the
+strictly increasing `seq` causes a replayed frame to be rejected with `ERR_SEQ`.
 
-Across connections v1 does not protect against replay. `seq` restarts at 0 on every
+Across connections, v1 does not protect against replay. `seq` restarts at 0 on every
 connection and every frame is signed with the same pre-shared key, so a captured session
 replayed byte for byte on a new connection is accepted and executed. The `HELLO` and
-`HELLO_ACK` nonces are exchanged but are not bound into the MAC, so they do not change
+`HELLO_ACK` nonces are exchanged but are not bound into the MAC, so they do not prevent
 this. Binding them, for example through a per-session key derived from the pre-shared key
-and both nonces, is not implemented. Until it is, TLS is what stops an on-path attacker
-from capturing and replaying. The gap is recorded by
+and both nonces, is not implemented. Until it is, TLS prevents an on-path attacker from
+capturing and replaying traffic. The gap is recorded by
 `tests/integration/test_tcp_session.py::test_a_session_replayed_from_a_capture_is_rejected`,
-marked `xfail(strict=True)`: it starts failing the suite the day the gap is closed.
+marked `xfail(strict=True)`: once the gap is closed, this test will fail the suite.
 
-Over UDP the same `seq` may legitimately arrive twice as a retransmission; there the
-receiver deduplicates against a window of recently seen values instead of rejecting the
-connection.
+Over UDP the same `seq` may legitimately arrive twice as a retransmission, so the receiver
+deduplicates against a window of recently seen values instead of rejecting the connection.
 
 ### 8.5 No custom cryptography
 
-Wireline does not define an encryption scheme. Confidentiality is obtained by running the
-protocol inside TLS. Writing a bespoke cipher would be the wrong answer to a solved
-problem.
+Wireline does not define an encryption scheme or include a custom cipher. Confidentiality
+is obtained by running the protocol inside TLS, which already solves this problem.
 
 ## 9. Transport bindings
 
@@ -195,26 +195,26 @@ problem.
 | TCP+TLS   | the above plus confidentiality      | same                                     |
 | UDP       | nothing beyond best-effort datagrams | framing, ACK, retransmit, dedup |
 
-Over UDP a frame must fit in a single datagram; the practical payload limit is therefore
-much lower than `MAX_PAYLOAD` and is bounded by the path MTU.
+Over UDP a frame must fit in a single datagram, so the practical payload limit is much
+lower than `MAX_PAYLOAD` and is bounded by the path MTU.
 
-A request is one frame in one datagram. An answer is one datagram holding the `ACK` for
-the request, followed by the reply when the request produced one. The `ack_seq` of that
-`ACK` is how the client tells which request a datagram answers; a datagram that does not
-start with the `ACK` for the request in flight is a late copy of an earlier answer and is
-dropped.
+A request is sent as one frame in one datagram. An answer is one datagram that holds the
+`ACK` for the request, followed by the reply if the request produced one. The client uses
+the `ack_seq` of that `ACK` to tell which request a datagram answers. A datagram that does
+not start with the `ACK` for the request in flight is treated as a late copy of an earlier
+answer and dropped.
 
 A datagram that fails decoding (magic, version, length, CRC or MAC) is dropped by the
-server without an `ERROR` and without touching the session of its source address. The
-address is not authenticated: answering it, or closing the session it names, would let
-anyone who can spoof that address tear down a live peer. Per-peer state, including the
-deduplication window, is created only for a frame that passed its checks and is discarded
-together with the session.
+server without an `ERROR` and without affecting the session of its source address. The
+address is not authenticated. Answering it, or closing the session it names, would allow
+anyone able to spoof that address to terminate a live peer's session. Per-peer state,
+including the deduplication window, is created only for a frame that passed its checks and
+is discarded together with the session.
 
 ## 10. Versioning
 
 `ver` is checked on every frame. A receiver rejects a mismatching version with
-`ERR_VERSION` instead of attempting a best-effort parse: a header that is only partly
-understood is worse than a refused connection. Compatible extensions in v1 are limited to
+`ERR_VERSION` and does not attempt a best-effort parse, because refusing the connection is
+safer than acting on a partly understood header. Compatible extensions in v1 are limited to
 new `flags` bits and new payload fields inside existing JSON control messages. Any change
 of field size, order or meaning requires `ver = 2`.

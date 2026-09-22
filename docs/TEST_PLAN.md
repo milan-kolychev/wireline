@@ -1,7 +1,7 @@
 # Test plan
 
-Tests exist to cover risks, not to raise a coverage number. Each row below starts from a
-risk and ends at the test that would fail if the risk materialised.
+Tests are derived from risks. Each row in section 2 starts from a risk and ends at the
+test that would fail if the risk materialised.
 
 ## 1. Levels
 
@@ -27,7 +27,7 @@ the full path.
 | R3 | A remote `length` value drives a huge allocation | `unit/test_codec.py::test_rejects_oversized_length_before_allocation` (security), `integration::test_oversized_length_does_not_allocate` |
 | R4 | A tampered payload is accepted because the CRC was recomputed | `unit/test_codec.py::test_detects_tampering_with_a_recomputed_crc` (security) |
 | R5 | An unauthenticated peer is served | `integration::test_frame_signed_with_the_wrong_secret_is_rejected` (security) |
-| R6 | A captured frame is replayed successfully | `unit/test_session_fsm.py::test_invariant_3_replayed_seq_is_rejected`, `integration::test_replayed_frame_is_rejected` (security); across connections: `integration::test_a_session_replayed_from_a_capture_is_rejected`, **xfail, known gap** |
+| R6 | A captured frame is replayed successfully | `unit/test_session_fsm.py::test_invariant_3_replayed_seq_is_rejected`, `integration::test_replayed_frame_is_rejected` (security); across connections: `integration::test_a_session_replayed_from_a_capture_is_rejected`, xfail, known gap |
 | R7 | Data is accepted before the handshake | `unit::test_invariant_1_*`, `integration::test_data_before_handshake_is_rejected` |
 | R8 | A second handshake resets session state | `unit::test_invariant_2_second_hello_is_a_protocol_error`, `integration::test_second_handshake_is_rejected` |
 | R9 | A dead or silent peer holds a connection forever | `integration::test_handshake_timeout_closes_a_silent_connection`, `integration::test_idle_timeout_closes_an_established_session` |
@@ -50,27 +50,28 @@ the full path.
 
 ## 3. Test design techniques used
 
-- **Equivalence classes** on `length`: negative is impossible (unsigned), `0` is valid,
+- Equivalence classes on `length`: negative is impossible (unsigned), `0` is valid,
   `1..MAX_PAYLOAD` is valid, `> MAX_PAYLOAD` is rejected.
-- **Boundary values**: `MAX_PAYLOAD` and `MAX_PAYLOAD + 1` on encode; `0` and `1` byte
+- Boundary values: `MAX_PAYLOAD` and `MAX_PAYLOAD + 1` on encode; `0` and `1` byte
   payloads on roundtrip; `2**32 - 1` in the length field.
-- **State transitions**: one test per row of the invariant table in PROTOCOL.md section 5,
+- State transitions: one test per row of the invariant table in PROTOCOL.md section 5,
   including the transitions that must be refused.
-- **Property-based testing**: `hypothesis` generates payloads, sequence numbers and
-  message types for the codec roundtrip, which covers input shapes nobody writes by hand.
-- **Negative testing**: bad magic, wrong version, unknown type, short header, truncated
+- Property-based testing: `hypothesis` generates payloads, sequence numbers and
+  message types for the codec roundtrip, covering input shapes that are rarely written by
+  hand.
+- Negative testing: bad magic, wrong version, unknown type, short header, truncated
   frame, corrupted body, forged body, wrong key, replayed frame, reserved flags, HTTP
   request sent to a binary port, garbage datagram, untrusted certificate, hostname
   mismatch, plaintext client against a TLS listener, a capture that is not a pcap, a
   truncated capture.
-- **Deterministic randomness**: probabilistic behaviour (packet loss) is tested with a
+- Deterministic randomness: probabilistic behaviour (packet loss) is tested with a
   fixed seed, so the same datagrams are dropped on every run and the assertion is exact.
 
 ## 4. Markers
 
 - `security` marks tests that assert a security property rather than a feature. They are
-  listed separately in the release checklist, because a failure there is not "a feature
-  regressed", it is "a control is gone".
+  listed separately in the release checklist because a failure among them means that a
+  security control has stopped working.
 - `slow` is excluded from the fast CI gate.
 
 ## 5. Determinism

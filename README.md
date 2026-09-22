@@ -11,10 +11,10 @@ Russian versions of these two documents: [README.ru.md](README.ru.md),
 
 ## What it solves
 
-TCP gives you an ordered byte stream. It does not give you message boundaries,
-authentication, or a way to tell that the peer process died an hour ago. Wireline adds
-exactly those three things and nothing else: framing with a length prefix, HMAC-SHA256 on
-every frame, and a state machine with timeouts.
+TCP provides an ordered byte stream, but no message boundaries, no authentication and no
+way to tell that the peer process exited an hour ago. Wireline adds these three things and
+nothing else: framing with a length prefix, HMAC-SHA256 on every frame, and a state machine
+with timeouts.
 
 ## Frame format
 
@@ -50,8 +50,9 @@ python -m wireline send --text "hello"
 
 - `py` is the Python launcher. A bare `python` can start the Microsoft Store stub, which
   prints `Python` and creates nothing.
-- If PowerShell refuses to run the activation script:
-  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (current window only).
+- If PowerShell refuses to run the activation script, use
+  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (applies to the current
+  window only).
 - Activation is optional: `.venv\Scripts\python.exe -m pytest` works without it.
 - Options go after the command: `serve --port 9000`, not `--port 9000 serve`.
 
@@ -69,7 +70,7 @@ pong 4/5  rtt=0.44 ms
 pong 5/5  rtt=0.42 ms
 ```
 
-The session id is new on every connection.
+A new session id is issued for every connection.
 
 ## Tests
 
@@ -83,38 +84,39 @@ pytest --cov=src --cov-report=term-missing
 The test plan, including the risk-to-test mapping, is in
 [docs/TEST_PLAN.md](docs/TEST_PLAN.md).
 
-Three tests are worth opening first:
+Three tests to read first:
 
-- `tests/unit/test_framing.py::test_one_frame_delivered_byte_by_byte` - the frame arrives
+- `tests/unit/test_framing.py::test_one_frame_delivered_byte_by_byte`: the frame arrives
   one byte at a time and must be emitted exactly once, at the last byte.
-- `tests/unit/test_naive_reader_fails.py` - the same input fed to the `read(n)` version
-  everyone writes first, showing it break.
-- `tests/integration/test_tcp_session.py::test_split_frame_is_reassembled` - the same
-  thing over a real socket, with sleeps that force separate TCP segments.
+- `tests/unit/test_naive_reader_fails.py`: the same input is fed to the naive `read(n)`
+  implementation that is usually written first, and that implementation breaks.
+- `tests/integration/test_tcp_session.py::test_split_frame_is_reassembled`: the same check
+  over a real socket, with sleeps that force separate TCP segments.
 
 ## Performance
 
-Measured on Windows 11 (build 26200), Python 3.13.3, loopback, echo application. Two runs
-of the same command; the table gives the range between them. Raw output and method in
-[docs/evidence/benchmark-loopback.md](docs/evidence/benchmark-loopback.md).
+Measured on Windows 11 (build 26200), Python 3.13.3, loopback, echo application. The same
+command was run twice; the table gives the range between the two runs. Raw output and the
+method are in [docs/evidence/benchmark-loopback.md](docs/evidence/benchmark-loopback.md).
 
 | Scenario | p50 | p95 | p99 | Throughput |
 |---|---|---|---|---|
 | sequential, 1 KiB payload, 2000 requests | 0.15-0.17 ms | 0.26-0.35 ms | 0.45-0.55 ms | ~5 200-6 000 msg/s, 10-12 MB/s |
 | 100 concurrent clients, 20 requests each | 9.6-11.4 ms | 18.7-22.7 ms | 19.4-25.0 ms | ~3 900-4 800 rps, 0 errors |
 
-Reading:
+Interpretation:
 
-- The two runs differ by 20-35% (p95 sequential, rps under load), so single numbers from
-  one run mean little on a laptop.
-- Under 100 clients per-request latency grows 60-70 times (p50 0.16 ms to 10-11 ms), and
-  total throughput does not grow: it is lower than in the sequential case. On this machine
-  the saturation point is below 100 concurrent clients.
-- The sequential throughput is requests divided by the sum of latencies, not by wall-clock
-  time, so it ignores the client's gaps between requests and is somewhat inflated. The
-  difference to the concurrent figure is too large to be explained by that alone.
+- The two runs differ by 20-35% (p95 sequential, rps under load), so a single run on a
+  laptop is not a reliable measurement.
+- Under 100 clients, per-request latency grows 60-70 times (p50 from 0.16 ms to 10-11 ms),
+  and total throughput does not grow: it is lower than in the sequential case. On this
+  machine the saturation point is below 100 concurrent clients.
+- Sequential throughput is computed as requests divided by the sum of latencies rather than
+  by wall-clock time. It excludes the client's gaps between requests and is therefore
+  somewhat inflated. The difference from the concurrent figure is too large to be explained
+  by that alone.
 
-Reproduce with:
+To reproduce:
 
 ```powershell
 python benchmarks/bench_tcp.py --requests 2000 --payload 1024 --clients 100
@@ -122,17 +124,18 @@ python benchmarks/bench_tcp.py --requests 2000 --payload 1024 --clients 100
 
 ## Evidence
 
-- [Incident 001: partial read](docs/evidence/incident-001-partial-read.md) - framing was
+- [Incident 001: partial read](docs/evidence/incident-001-partial-read.md). Framing was
   broken on purpose. The client saw `ConnectionResetError`; the server log said
-  `ERR_LENGTH: short header: 10 bytes`. Symptom, hypotheses, root cause, fix, regression.
-- [Benchmark output](docs/evidence/benchmark-loopback.md) - raw numbers and the method
-  that produced them.
-- [Capture walkthrough](docs/evidence/capture-walkthrough.md) - a session read off the wire
+  `ERR_LENGTH: short header: 10 bytes`. The report covers the symptom, hypotheses, root
+  cause, fix and regression test.
+- [Benchmark output](docs/evidence/benchmark-loopback.md): raw numbers and the method that
+  produced them.
+- [Capture walkthrough](docs/evidence/capture-walkthrough.md): a session read off the wire
   layer by layer, including the frame that only reassembly can see.
 
 ## TLS
 
-Wireline does not encrypt (ADR-0002); it runs inside TLS.
+Wireline does not encrypt (ADR-0002) and relies on TLS for confidentiality.
 
 ```powershell
 python tools/make_certs.py --out certs      # throwaway self-signed cert for the lab
@@ -145,9 +148,9 @@ client = WirelineClient(secret, ssl_context=client_context("certs/server.crt"),
                         server_hostname="localhost")
 ```
 
-The TLS handshake and the Wireline handshake answer different questions and are tested
-separately: TLS asks whether the host is who it claims to be, Wireline asks whether the
-peer holds the shared key. `tests/integration/test_tls.py` includes the negative cases -
+The TLS handshake and the Wireline handshake check different things and are tested
+separately. TLS verifies that the host is who it claims to be; Wireline verifies that the
+peer holds the shared key. `tests/integration/test_tls.py` includes the negative cases:
 untrusted certificate, hostname mismatch, plaintext client against a TLS listener.
 
 ## UDP
@@ -156,11 +159,11 @@ untrusted certificate, hostname mismatch, plaintext client against a TLS listene
 from wireline.transport.udp import UdpServer, UdpClient
 ```
 
-Stop-and-wait, explicit ACK, retransmission on a fixed timeout, and a deduplication window
-on the receiver. The reason the last one exists: a lost ACK makes the sender retransmit a
-request the receiver already ran, so without deduplication the reliability layer becomes a
-request multiplier. Details and trade-offs in
-[ADR-0005](docs/adr/0005-stop-and-wait-over-udp.md).
+The UDP binding uses stop-and-wait, explicit ACK, retransmission on a fixed timeout, and a
+deduplication window on the receiver. Deduplication is required because a lost ACK makes
+the sender retransmit a request the receiver has already executed; without it the
+reliability layer would execute the same request more than once. Details and trade-offs
+are in [ADR-0005](docs/adr/0005-stop-and-wait-over-udp.md).
 
 Loss is emulated with a seeded generator, so `test_delivery_survives_forty_percent_loss`
 drops the same datagrams on every run.
@@ -171,19 +174,20 @@ drops the same datagrams on every run.
 python -m wireline sniff tests/fixtures/tcp-session.pcap --flows
 ```
 
-Walks a capture L2 -> L3 -> L4 -> L7 and reassembles Wireline messages per direction of
-each TCP connection, using the same `FrameBuffer` as the server. The pcap reader is
-hand-written: a capture file is a header plus a list of timestamped byte strings.
+The analyser walks a capture L2 -> L3 -> L4 -> L7 and reassembles Wireline messages per
+direction of each TCP connection, using the same `FrameBuffer` as the server. The pcap
+reader is hand-written: a capture file is a header followed by a list of timestamped byte
+strings.
 
-Worked example and how to capture your own traffic on Windows and Linux:
-[docs/NETWORK.md](docs/NETWORK.md).
+A worked example and instructions for capturing your own traffic on Windows and Linux are
+in [docs/NETWORK.md](docs/NETWORK.md).
 
 ## Architecture
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The short version: the connection state
-machine in `src/wireline/session.py` contains no I/O. It takes an event and returns a
-`Reaction`, and the transport applies it. Every invariant in the specification therefore
-has a unit test that runs without a socket.
+Details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). In short, the connection state
+machine in `src/wireline/session.py` performs no I/O. It takes an event and returns a
+`Reaction`, and the transport applies it. As a result, every invariant in the
+specification has a unit test that runs without a socket.
 
 Decisions and their trade-offs are recorded in [docs/adr/](docs/adr/):
 
@@ -202,41 +206,41 @@ Decisions and their trade-offs are recorded in [docs/adr/](docs/adr/):
 | `ERR_AUTH` on the first frame | `WIRELINE_SECRET` on both sides | client and server have different keys; in PowerShell `$env:` is set per terminal |
 | `ERR_MAGIC` immediately | what is actually connecting to the port | a browser, a health check, or a port collision |
 | client hangs then times out | `ss -tn` (Linux) or `netstat -ano` (Windows) for the connection state | server started but not listening on that interface |
-| connection drops after ~30 s of silence | server log for "idle timeout" | working as designed; send PING to keep it |
+| connection drops after ~30 s of silence | server log for "idle timeout" | expected behaviour; send PING to keep the connection open |
 | `ERR_SEQ` | whether frames are being replayed or reordered | a retransmit at the application level, or a real replay |
 
 ## Limitations
 
-Deliberate, and each one is a decision rather than an omission:
+The following limitations are deliberate.
 
-- **No confidentiality of its own.** Encryption is delegated to TLS; the server and client
-  accept an `ssl_context`. Writing a cipher was rejected in ADR-0002.
-- **No sliding window and no adaptive RTO** in the UDP binding. Stop-and-wait with a fixed
-  timeout is enough to show the trade-off; Jacobson's RTT estimation is not implemented,
+- No confidentiality of its own. Encryption is delegated to TLS; the server and client
+  accept an `ssl_context`. A custom cipher was rejected in ADR-0002.
+- No sliding window and no adaptive RTO in the UDP binding. Stop-and-wait with a fixed
+  timeout is enough to show the trade-off. Jacobson's RTT estimation is not implemented,
   so throughput is bounded by one round trip per message.
-- **The analyser reads classic pcap only**, not pcapng, and dissects IPv4 over Ethernet or
-  raw IP. It does not follow TCP sequence numbers, so a capture with reordering or
-  retransmission at L4 will confuse flow reassembly.
-- **Sequence numbers wrap at 2^32** and the session does not renegotiate.
-- **The secret is pre-shared**, with no key exchange and no rotation.
-- **`FLAG_COMPRESSED` is reserved and not implemented**; setting it is rejected rather than
-  ignored.
-- **Single process, one task per connection.** No backpressure beyond the OS socket
-  buffers.
+- The analyser reads classic pcap only, not pcapng, and dissects IPv4 over Ethernet or raw
+  IP. It does not follow TCP sequence numbers, so a capture with reordering or
+  retransmission at L4 will break flow reassembly.
+- Sequence numbers wrap at 2^32, and the session does not renegotiate.
+- The secret is pre-shared, with no key exchange and no rotation.
+- `FLAG_COMPRESSED` is reserved and not implemented. A frame with this bit set is rejected
+  rather than ignored.
+- The server runs as a single process with one task per connection. There is no
+  backpressure beyond the OS socket buffers.
 
 ## Known issues
 
 The items below are open defects.
 
-- **No replay protection across connections.** Within a connection `seq` rejects a
-  replayed frame. A whole captured session, replayed on a new connection, is accepted: the
+- No replay protection across connections. Within a connection, `seq` rejects a replayed
+  frame, but a whole captured session replayed on a new connection is accepted because the
   `HELLO` nonces are not bound into the MAC. See PROTOCOL.md section 8.4 and the `xfail`
   test named there. TLS prevents the capture in the first place.
-- **UDP peers are never expired.** `UdpClient.close()` does not send `BYE`, and the UDP
-  server has no idle timeout, so every client address that completed a handshake keeps a
-  session and a deduplication window in memory until the server stops.
-- **The UDP client does not check payload size** against the datagram limit; a payload
-  above roughly 64 KiB fails in `sendto` with an `OSError`, not a `ProtocolError`.
+- UDP peers are never expired. `UdpClient.close()` does not send `BYE`, and the UDP server
+  has no idle timeout, so every client address that completed a handshake keeps a session
+  and a deduplication window in memory until the server stops.
+- The UDP client does not check payload size against the datagram limit. A payload above
+  roughly 64 KiB fails in `sendto` with an `OSError`, not a `ProtocolError`.
 
 ## Status
 
@@ -245,8 +249,8 @@ TLS, UDP reliability binding, pcap analyser, CLI, unit and integration suites, b
 
 Checked on Windows 11 (build 26200) with Python 3.13.3.
 
-The reference application is an echo service. The protocol does not care what `DATA`
-means; the echo is the smallest behaviour that makes the transport observable.
+The reference application is an echo service. The protocol does not interpret `DATA`; an
+echo is the smallest behaviour that makes the transport observable.
 
 ## What this demonstrates
 
@@ -255,11 +259,12 @@ means; the echo is the smallest behaviour that makes the transport observable.
 - Correct framing over a stream transport, and tests that prove it with the exact inputs
   that break the naive version.
 - Treating `length` as attacker-controlled input and validating it before allocation.
-- The difference between an error-detection control (CRC32) and an authentication control
-  (HMAC-SHA256), and knowing when to delegate to TLS instead of inventing crypto.
+- Separating an error-detection control (CRC32) from an authentication control
+  (HMAC-SHA256), and delegating encryption to TLS instead of implementing custom
+  cryptography.
 - A connection state machine specified as invariants and tested transition by transition.
 - Measured latency and throughput with a stated method, including the saturation point.
-- Rebuilding the minimum reliability layer over UDP, and knowing why deduplication is the
-  part that cannot be skipped.
+- Rebuilding the minimum reliability layer over UDP, and explaining why deduplication
+  cannot be omitted.
 - Reading traffic off the wire layer by layer, and telling a capture-side false positive
   from a real message.

@@ -1,6 +1,7 @@
 # Network notes
 
-How Wireline traffic looks on the wire, and how to look at it.
+This document describes how Wireline traffic appears on the wire and how to capture and
+analyse it.
 
 ## 1. What the analyser does
 
@@ -10,15 +11,15 @@ How Wireline traffic looks on the wire, and how to look at it.
 L2 Ethernet -> L3 IPv4 -> L4 TCP/UDP -> L7 Wireline
 ```
 
-Each step strips one header and passes the rest down. The pcap reader
-(`src/wireline/sniff/pcap.py`) is written by hand rather than taken from a library, so the
-file format is visible: a 24-byte header, then per packet a 16-byte record header and the
-captured bytes. Byte order is decided by the magic number, which is why a capture written
-on one machine opens on another.
+Each step strips one header and passes the rest to the next layer. The pcap reader
+(`src/wireline/sniff/pcap.py`) is implemented by hand without a library, so the file format
+is visible in the code: a 24-byte header, then for each packet a 16-byte record header and
+the captured bytes. Byte order is determined by the magic number, so a capture written on
+one machine can be read on another.
 
-The analyser is an observer and does not hold the shared secret. It parses Wireline
-headers and checks CRC, but it does not verify the MAC. That is a property of the position
-rather than a shortcut: someone who can read the traffic still cannot forge it.
+The analyser is a passive observer and does not hold the shared secret. It parses Wireline
+headers and checks the CRC, but does not verify the MAC. This is intentional (ADR-0006):
+a party that can read the traffic still cannot forge it without the key.
 
 ## 2. Reading a session
 
@@ -38,18 +39,18 @@ Output for the committed fixture `tests/fixtures/tcp-session.pcap`:
 1757000000.005000  ... [ACK]
 ```
 
-Three TCP packets before any Wireline message: the transport handshake completes before
-the protocol handshake starts. The two are independent, and mixing them up is the usual
-reason a diagnosis stalls.
+The first three TCP packets carry no Wireline message: the transport handshake completes
+before the protocol handshake starts. The two handshakes are independent, and confusing
+them is a common reason a diagnosis stalls.
 
 ## 3. The two packets with no L7 line
 
-Packets 6 and 7 carry 30 and 60 bytes and show nothing at L7. That is the frame split
-across segments. Per-packet scanning cannot report it: packet 6 has a complete 19-byte
-header but only 11 bytes of a 39-byte body, and reporting a message whose body is not
-present would be a false positive.
+Packets 6 and 7 carry 30 and 60 bytes and show nothing at L7. Together they carry one frame
+split across segments. Per-packet scanning cannot report it: packet 6 has a complete
+19-byte header but only 11 bytes of a 39-byte body, and reporting a message whose body is
+not present would be a false positive.
 
-Following the flow recovers it:
+Flow reassembly recovers the frame:
 
 ```
 reassembled per direction:
@@ -57,8 +58,8 @@ reassembled per direction:
   10.0.0.20:9000 -> 10.0.0.10:51234: HELLO_ACK(seq=0), DATA(seq=1)
 ```
 
-Reassembly uses the same `FrameBuffer` the server uses. Capture-side and receive-side
-parsing agree because they are the same code.
+Reassembly uses the same `FrameBuffer` as the server, so capture-side and receive-side
+parsing give the same result.
 
 ## 4. Frame sizes on the wire
 
@@ -68,16 +69,16 @@ parsing agree because they are the same code.
 | `HELLO_ACK` | 65 | 116 |
 | `BYE` | 0 | 51 |
 
-Overhead is 51 bytes per frame: 19 header, 32 MAC. For a `BYE` that is the entire packet,
-which is the price of authenticating every frame rather than authenticating the session
-once (ADR-0002).
+Overhead is 51 bytes per frame: 19 bytes of header and 32 bytes of MAC. A `BYE` frame
+consists of overhead only. This is the cost of authenticating every frame instead of
+authenticating the session once (ADR-0002).
 
 ## 5. Capturing your own traffic
 
-Windows: install Wireshark with Npcap and tick "support loopback traffic capture", then
+Windows: install Wireshark with Npcap and enable "support loopback traffic capture", then
 capture on the `Adapter for loopback traffic capture` interface with the filter
-`tcp port 9000 or udp port 9001`. Save as **pcap**, not pcapng: the reader here handles the
-classic format only, and Wireshark offers both under File -> Save As.
+`tcp port 9000 or udp port 9001`. Save the capture as pcap, not pcapng: the reader handles
+the classic format only, and Wireshark offers both under File -> Save As.
 
 Linux: `sudo tcpdump -i lo -w capture.pcap 'port 9000 or port 9001'`.
 
@@ -89,12 +90,12 @@ python -m wireline send --text "capture me"
 python -m wireline sniff capture.pcap --flows
 ```
 
-Useful Wireshark display filters while a capture is open:
+Useful Wireshark display filters for an open capture:
 
-- `tcp.port == 9000` - only the lab traffic;
-- `tcp.len > 0` - only packets that carry data, hiding pure ACKs;
-- `tcp.analysis.retransmission` - retransmissions, if the loss emulator was in use;
-- `data[0:4] == 57:49:52:45` - packets that start with the `WIRE` magic.
+- `tcp.port == 9000`: only the lab traffic;
+- `tcp.len > 0`: only packets that carry data, without pure ACKs;
+- `tcp.analysis.retransmission`: retransmissions, if the loss emulator was in use;
+- `data[0:4] == 57:49:52:45`: packets that start with the `WIRE` magic.
 
 ## 6. Fixtures
 
@@ -106,7 +107,7 @@ network, while still exercising the same parsing path as a capture from tcpdump.
 ## 7. UDP
 
 `tests/fixtures/udp-session.pcap` holds a PING/PONG exchange. The request has
-`FLAG_REQUIRE_ACK` set, which is what the UDP client sets on every message it wants
-acknowledged. In a capture taken with loss emulation the same `seq` appears more than once
-with `FLAG_RETRANSMIT` on the later copies, and the server answers each of them from its
-deduplication window instead of executing the request again (ADR-0005).
+`FLAG_REQUIRE_ACK` set; the UDP client sets this flag on every message that requires
+acknowledgement. In a capture taken with loss emulation, the same `seq` appears more than
+once, with `FLAG_RETRANSMIT` set on the later copies, and the server answers each of them
+from its deduplication window instead of executing the request again (ADR-0005).
